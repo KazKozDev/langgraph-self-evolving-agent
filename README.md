@@ -119,21 +119,23 @@ SESSION_SOURCE=file python demo.py
 
 ```
 src/
-  state.py          EvolutionState (TypedDict) + Pydantic models
-  graph.py          LangGraph StateGraph — 8 nodes, phase-based router
-  llm.py            LLM client (real API + mock mode)
-  executor.py       TaskExecutor: Mock, Subprocess (bash/python)
-  session_source.py SessionSource: Mock (in-memory), File (JSONL)
+  state.py           EvolutionState (TypedDict) + Pydantic models
+  graph.py           LangGraph StateGraph — 8 nodes, phase-based router
+  llm.py             LLM client (real API + mock mode)
+  executor.py        TaskExecutor: Mock, Subprocess (bash/python)
+  session_source.py  SessionSource: Mock, File, SQLite, Watch
+  github_exporter.py GitHub auto-commit + push for evolved skills
   nodes/
-    collect.py      collect_experience
-    extract.py      extract_skills
-    explore.py      explore_policies + run_variant
-    evaluate.py     evaluate_results + degradation detection
-    assimilate.py   assimilate_best → persistent store
-    human.py        human_review (LangGraph interrupt)
+    collect.py       collect_experience
+    extract.py       extract_skills
+    explore.py       explore_policies + run_variant (parallel support)
+    evaluate.py      evaluate_results + degradation detection
+    assimilate.py    assimilate_best → persistent store + GitHub export
+    human.py         human_review (LangGraph interrupt)
   memory/
-    store.py        JSON-backed persistent skill/experience store
-demo.py             Single cycle or continuous loop demo
+    store.py         JSON-backed persistent skill/experience store
+demo.py              Single cycle or continuous loop demo
+dashboard.py         FastAPI web dashboard (http://localhost:8080)
 ```
 
 ## Pluggable Backends
@@ -152,6 +154,8 @@ demo.py             Single cycle or continuous loop demo
 |---------|---------|-------------|
 | `mock` | (default) | Seeded in-memory data |
 | `file` | `SESSION_SOURCE=file` | JSONL file (`~/.self-evolving-agent/sessions.jsonl`) |
+| `sqlite` | `SESSION_SOURCE=sqlite` | Any SQLite DB with sessions table |
+| `watch` | `SESSION_SOURCE=watch` | Watches directory for incoming JSON files |
 
 ### LLMs
 
@@ -159,6 +163,18 @@ demo.py             Single cycle or continuous loop demo
 |------|---------|-------------|
 | Mock | `EVOLUTION_MOCK=true` | Deterministic, no API key |
 | OpenAI-compatible | `OPENAI_API_KEY` + `OPENAI_BASE_URL` | Any OpenAI-compatible API |
+
+### GitHub Export
+
+Set `GITHUB_REPO_PATH=~/my-skills-repo` to auto-commit evolved skills as Markdown files.
+
+### Web Dashboard
+
+```bash
+pip install -e ".[dashboard]"
+python dashboard.py
+# → http://localhost:8080
+```
 
 ## Research Basis
 
@@ -193,7 +209,15 @@ pytest tests/ -v
 
 ## Roadmap
 
-- [ ] Send API for parallel strategy execution
+- [x] Mock LLM for fast testing
+- [x] Real OpenAI-compatible API support
+- [x] Subprocess executor (bash/python)
+- [x] SQLite + Watch session sources
+- [x] GitHub auto-export of evolved skills
+- [x] FastAPI web dashboard
+- [x] Continuous loop mode
+- [x] Parallel strategy execution
+- [x] Human-in-the-loop via LangGraph interrupt
 - [ ] LangSmith tracing for graph visualization
 - [ ] Streaming output mode
 
