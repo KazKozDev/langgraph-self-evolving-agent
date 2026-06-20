@@ -122,18 +122,14 @@ class CodingExecutor(DomainExecutor):
 # ── Research Executor ─────────────────────────────────────────
 
 class ResearchExecutor(DomainExecutor):
-    """Web search → fetch pages → LLM synthesis → structured findings.
-
-    Uses real HTTP calls (httpx) to search and fetch content.
-    """
+    """Web search → fetch pages → LLM synthesis → structured findings."""
 
     def __init__(self, timeout: int = 60):
         self.timeout = timeout
 
     def execute(self, goal: str, strategy_desc: str = "", domain: str = "research") -> ExecutionResult:
         from src.llm import get_llm
-        import urllib.request
-        import urllib.error
+        from src.webtools import search, fetch
 
         llm = get_llm(max_tokens=1200)
         errors = []
@@ -142,44 +138,43 @@ class ResearchExecutor(DomainExecutor):
         # Step 1: Generate search queries from goal
         try:
             resp = llm.invoke(
-                f"Task: {goal}\n\nGenerate 2 Google search queries to research this. "
-                f"Return JSON: {{\"queries\": [\"query1\", \"query2\"]}}"
+                f"Task: {goal}\n\nGenerate 2 search queries. Return JSON: {{\"queries\": [\"q1\", \"q2\"]}}"
             )
-            data = json.loads(str(resp.content))
-            queries = data.get("queries", [goal])
+            queries = json.loads(str(resp.content)).get("queries", [goal])
         except Exception:
             queries = [goal]
 
-        # Step 2: Execute searches (DuckDuckGo HTML, no API key needed)
+        # Step 2: Search + fetch top result from each query
         for q in queries[:2]:
             try:
-                url = f"https://html.duckduckgo.com/html/?q={urllib.request.quote(q)}"
-                req = urllib.request.Request(url, headers={"User-Agent": "SelfEvolvingAgent/1.0"})
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    html = resp.read().decode("utf-8", errors="replace")
-                # Extract snippets (simple regex for DuckDuckGo HTML)
-                import re
-                snippets = re.findall(r'class="result__snippet">(.*?)</a>', html, re.DOTALL)
-                findings.extend(s[:300].strip() for s in snippets[:3])
+                results = search(q, max_results=3)
+                if results:
+                    findings.append(f"### Search: {q}")
+                    for r in results[:2]:
+                        findings.append(f"- {r['title']}: {r['snippet'][:200]}")
+                    # Fetch top result for deeper content
+                    top = results[0]
+                    page_text = fetch(top["url"], timeout=self.timeout)
+                    if page_text and not page_text.startswith("[fetch error"):
+                        findings.append(f"  Content: {page_text[:500]}")
             except Exception as e:
-                errors.append(f"search failed for '{q[:40]}': {e}")
+                errors.append(f"search failed: {e}")
 
         # Step 3: Synthesize
         if findings:
-            ctx = "\n".join(f"- {f}" for f in findings[:6])
+            ctx = "\n".join(findings)
             try:
                 resp = llm.invoke(
-                    f"Research task: {goal}\n\nSources:\n{ctx}\n\n"
-                    f"Synthesize a concise answer (3-5 sentences). Return JSON: {{\"answer\": \"...\", \"sources\": N}}"
+                    f"Research: {goal}\n\nSources:\n{ctx}\n\nSynthesize answer (3-5 sentences). Return JSON: {{\"answer\": \"...\", \"sources\": N}}"
                 )
                 data = json.loads(str(resp.content))
-                summary = data.get("answer", "")
-                steps = len(findings) + 1
+                summary = data.get("answer", ctx[:300])
+                steps = len(findings)
             except Exception:
                 summary = "\n".join(findings[:3])
                 steps = len(findings)
         else:
-            summary = "No sources found."
+            summary = "No results found."
             steps = 0
 
         return ExecutionResult(
