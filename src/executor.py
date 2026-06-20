@@ -116,4 +116,7 @@ class SubprocessExecutor(TaskExecutor):
 def get_executor(backend: str = "mock") -> TaskExecutor:
     if backend == "subprocess" or backend == "python":
         return SubprocessExecutor(backend=backend)
+    if backend == "code":
+        from src.code_executor import CodeExecutor
+        return CodeExecutor()  # type: ignore[return-value]
     return MockExecutor()

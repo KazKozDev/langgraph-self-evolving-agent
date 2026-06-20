@@ -111,6 +111,7 @@ def main():
     parser.add_argument("--result", default="success", choices=["success", "failure", "partial"])
     parser.add_argument("--tool-calls", type=int, default=5)
     parser.add_argument("--evolve", action="store_true", help="Run evolution cycle after submit")
+    parser.add_argument("--execute", action="store_true", help="Actually execute the task (CodeExecutor)")
     parser.add_argument("--watch", action="store_true", help="Read tasks from stdin")
 
     args = parser.parse_args()
@@ -125,6 +126,8 @@ def main():
 
     if args.evolve:
         print(f"🚀 Submitting + evolving: {args.goal[:60]}...")
+        if args.execute:
+            os.environ["EXECUTOR_BACKEND"] = "code"
         result = submit_and_evolve(args.goal, args.domain)
         print(f"   Session: {result['session_id']}")
         print(f"   Skills:  {result['skills_created'] or 'none extracted'}")
