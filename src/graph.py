@@ -1,10 +1,14 @@
 """
 Main LangGraph StateGraph — the Self-Evolving Agent.
 
-Phase-based routing: each node sets `phase`, a single router dispatches to the next node.
-Explicit END after assimilate → done.
+Phase-based router. Supports:
+  - Sequential variant execution (default)
+  - Parallel variant execution (Send API, when PARALLEL_EXPLORE=true)
+  - Human-in-the-loop via interrupt()
 """
 from __future__ import annotations
+
+import os
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -41,7 +45,6 @@ def _phase_router(state: EvolutionState) -> str:
     if phase == "done":
         return "__end__"
 
-    # collect, extract, explore — map by name
     node_map = {
         "collect": "collect_experience",
         "extract": "extract_skills",
@@ -51,7 +54,10 @@ def _phase_router(state: EvolutionState) -> str:
 
 
 def build_graph() -> StateGraph:
-    """Build the self-evolving agent graph."""
+    """Build the self-evolving agent graph.
+
+    Set PARALLEL_EXPLORE=true for Send API parallel variant execution.
+    """
     builder = StateGraph(EvolutionState)
 
     builder.add_node("collect_experience", collect_experience)

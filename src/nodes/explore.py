@@ -1,22 +1,25 @@
 """
 explore_policies + run_variant — design and test strategy variants.
-Inspired by APEX policy exploration. Sequential execution, 2 variants.
+
+Uses pluggable TaskExecutor (mock, subprocess, delegate_task).
+Inspired by APEX policy exploration.
 """
 from __future__ import annotations
 
-import json
+import os
 
-from src.llm import get_llm
-from src.memory.store import get_store
 from src.state import EvolutionState
 
 
-def explore_policies(state: EvolutionState) -> dict:
-    """Design 2 strategy variants for a recent task.
+def _get_executor():
+    """Lazy-load the configured executor."""
+    backend = os.getenv("EXECUTOR_BACKEND", "mock")
+    from src.executor import get_executor
+    return get_executor(backend)
 
-    Stores variants in state. A conditional edge then routes to
-    run_variant for each one sequentially.
-    """
+
+def explore_policies(state: EvolutionState) -> dict:
+    """Design 2 strategy variants for a recent task."""
     experiences = state.get("experiences", [])
 
     # Pick a task to explore
@@ -25,14 +28,13 @@ def explore_policies(state: EvolutionState) -> dict:
     candidates = failures + suboptimal
 
     if not candidates and experiences:
-        candidates = [experiences[0]]  # fallback
+        candidates = [experiences[0]]
 
     if not candidates:
         return {"policy_variants": [], "phase": "evaluate"}
 
     target = candidates[0]
 
-    # 2 contrasting strategies (no LLM call — fast and deterministic)
     strategies = [
         {"id": "A", "desc": f"Methodical: plan first, implement step-by-step, test after each step"},
         {"id": "B", "desc": f"Fast iteration: code a minimal working version, then refine and add tests"},
@@ -55,7 +57,7 @@ def explore_policies(state: EvolutionState) -> dict:
 
 
 def run_variant(state: EvolutionState) -> dict:
-    """Execute the current strategy variant and simulate the outcome via LLM."""
+    """Execute the current strategy variant via the configured executor."""
     variants = state.get("policy_variants", [])
     idx = state.get("variant_index", 0)
 
@@ -64,30 +66,25 @@ def run_variant(state: EvolutionState) -> dict:
 
     variant = variants[idx]
 
-    llm = get_llm(max_tokens=300)
-    prompt = f"""TASK: {variant.get('task_goal')}
-STRATEGY: {variant.get('strategy_desc')}
-
-Simulate outcome. Return JSON:
-{{"success": true/false, "steps": number, "errors": [], "output_summary": "brief"}}
-"""
-
-    try:
-        resp = llm.invoke(prompt)
-        result = json.loads(str(resp.content))
-    except Exception:
-        result = {"success": False, "steps": 0, "errors": ["sim_fail"], "output_summary": ""}
+    # Execute the task with the given strategy
+    executor = _get_executor()
+    result = executor.execute(
+        goal=variant.get("task_goal", ""),
+        strategy_desc=variant.get("strategy_desc", ""),
+        domain=variant.get("domain", "coding"),
+    )
 
     variant_result = {
         "strategy_id": variant["strategy_id"],
         "strategy_desc": variant["strategy_desc"],
-        "success": result.get("success", False),
-        "steps": result.get("steps", 0),
-        "errors": result.get("errors", []),
-        "output_summary": result.get("output_summary", ""),
+        "success": result.success,
+        "steps": result.steps,
+        "errors": result.errors,
+        "output_summary": result.output_summary,
+        "raw_output": result.raw_output,
     }
 
-    accumulated = list(variants)  # copy
+    accumulated = list(variants)
     accumulated[idx] = variant_result
 
     next_idx = idx + 1
