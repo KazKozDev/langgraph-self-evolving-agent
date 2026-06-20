@@ -29,7 +29,8 @@ def _phase_router(state: EvolutionState) -> str:
     if phase == "run_variant":
         idx = state.get("variant_index", 0)
         total = len(state.get("policy_variants", []))
-        if idx < total:
+        # idx == -1 means parallel mode — run_variant handles all at once
+        if idx == -1 or idx < total:
             return "run_variant"
         return "evaluate_results"
 
