@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+dashboard = ["fastapi>=0.115", "uvicorn>=0.30"]
 
 [build-system]
 requires = ["setuptools>=75"]

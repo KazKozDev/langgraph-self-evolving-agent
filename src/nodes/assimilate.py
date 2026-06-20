@@ -1,65 +1,71 @@
 """
-assimilate_best node — absorb winning strategies into system prompt / skill store.
+assimilate_best node — absorb winning strategies into skill store.
+Optionally exports to GitHub when GITHUB_REPO_PATH is set.
+
 Inspired by PEAM (arXiv:2605.27762) — experience internalisation.
 """
 from __future__ import annotations
+
+import os
 
 from src.memory.store import get_store
 from src.state import EvolutionState
 
 
-def assimilate_best(state: EvolutionState) -> dict:
-    """Absorb the best policy and extracted skills into persistent memory.
+def _maybe_export(skills: list[dict]):
+    """Export skills to GitHub if configured."""
+    if os.getenv("GITHUB_REPO_PATH"):
+        try:
+            from src.github_exporter import GitHubExporter
+            exporter = GitHubExporter()
+            result = exporter.export_all(skills)
+            if result["exported"] > 0:
+                print(f"  📤 GitHub: exported {result['exported']} skills", flush=True)
+        except Exception:
+            pass  # GitHub export is optional
 
-    This is the final processing node — it writes the winning strategy
-    as an updated skill and increments metrics.
-    """
+
+def assimilate_best(state: EvolutionState) -> dict:
+    """Absorb the best policy and extracted skills into persistent memory."""
     store = get_store()
     best_policy = state.get("best_policy")
     extracted_skills = state.get("extracted_skills", [])
-
-    updates = []
+    new_skills = []
 
     # ── Assimilate extracted skills ────────────────────────────
     for sk in extracted_skills:
-        # Already saved during extraction; just log
-        updates.append(f"skill_created: {sk.get('name')}")
+        new_skills.append(sk)
 
-    # ── Assimilate best policy as skill improvement ────────────
+    # ── Assimilate best policy as skill ────────────────────────
     if best_policy and best_policy.get("suggest_skill_update"):
-        # Create a meta-skill: "prefer this strategy pattern"
+        quality = best_policy.get("quality_score", 7)
         strategy_skill = {
             "name": f"strategy-{best_policy.get('strategy_id', 'X').lower()}",
-            "triggers": [f"When approaching a task similar to the one this strategy won on"],
+            "triggers": ["When approaching a similar task"],
             "steps": [
-                f"Use strategy pattern: {best_policy.get('strategy_desc', '')}",
-                "Verify the approach fits the specific task before applying",
+                f"Use: {best_policy.get('strategy_desc', '')}",
+                "Verify the approach fits the specific task",
             ],
-            "pitfalls": [
-                f"Strategy won with {best_policy.get('steps', '?')} steps; may need adaptation",
-            ],
-            "success_rate": best_policy.get("quality_scores", {}).get("correctness", 7) / 10,
+            "pitfalls": [f"Won with {best_policy.get('steps', '?')} steps; may need adaptation"],
+            "success_rate": quality / 10,
             "use_count": 0,
             "domain": "",
         }
         store.save_skill(strategy_skill)
-        updates.append(f"strategy_skill_created: {strategy_skill['name']}")
+        new_skills.append(strategy_skill)
         store.increment_metric("total_improvements")
 
-    # ── Handle degraded skills ──────────────────────────────────
-    degraded = state.get("degraded_skills", [])
-    for sk in degraded:
-        # Lower success rate to trigger retraining
+    # ── Handle degraded skills ─────────────────────────────────
+    for sk in state.get("degraded_skills", []):
         store.update_success_rate(sk["name"], False)
-        updates.append(f"degraded_flagged: {sk['name']}")
 
-    # ── Update metrics ──────────────────────────────────────────
+    # ── Export to GitHub (optional) ────────────────────────────
+    if new_skills:
+        _maybe_export(new_skills)
+
+    # ── Update metrics ─────────────────────────────────────────
     cycle = state.get("cycle", 0) + 1
     store.set_metric("last_cycle", cycle)
     store.set_metric("total_skills", len(store.get_skills()))
 
-    return {
-        "phase": "done",
-        "cycle": cycle,
-        "error": None,
-    }
+    return {"phase": "done", "cycle": cycle, "error": None}
