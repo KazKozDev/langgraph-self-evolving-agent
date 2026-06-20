@@ -51,9 +51,13 @@ def submit_and_evolve(goal: str, domain: str = "coding") -> dict:
     """Submit a task AND immediately run one evolution cycle."""
     sid = submit_task(goal, domain, result="success")
 
-    # Run one cycle
+    # Configure environment
     os.environ.setdefault("SESSION_SOURCE", "watch")
-    os.environ.setdefault("EVOLUTION_MOCK", "true")
+    # Use Ollama if available, otherwise mock
+    if os.getenv("EVOLUTION_MOCK", "").lower() not in ("1", "true"):
+        os.environ.setdefault("OPENAI_BASE_URL", "http://localhost:11434/v1")
+        os.environ.setdefault("OPENAI_API_KEY", "ollama")
+        os.environ.setdefault("EVOLUTION_MODEL", "gemma4:26b-mlx")
 
     from src.graph import get_graph
     from src.memory.store import get_store
