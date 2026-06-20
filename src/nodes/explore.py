@@ -12,11 +12,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.state import EvolutionState
 
-
-def _get_executor():
-    backend = os.getenv("EXECUTOR_BACKEND", "mock")
-    from src.executor import get_executor
-    return get_executor(backend)
+def _get_executor(domain: str = "general"):
+    """Get the right executor for this domain."""
+    backend = os.getenv("EXECUTOR_BACKEND", "auto")
+    if backend == "mock":
+        from src.executor import MockExecutor
+        return MockExecutor()
+    if backend == "subprocess":
+        from src.executor import SubprocessExecutor
+        return SubprocessExecutor(backend="shell")
+    # Default: domain-based routing
+    from src.domain_executors import get_domain_executor
+    return get_domain_executor(domain)
 
 
 def explore_policies(state: EvolutionState) -> dict:
@@ -71,7 +78,10 @@ def run_variant(state: EvolutionState) -> dict:
         return {"phase": "evaluate"}
 
     variant = variants[idx]
-    executor = _get_executor()
+
+    # Execute with domain-specific executor
+    domain = variant.get("domain", "coding")
+    executor = _get_executor(domain)
     result = executor.execute(
         goal=variant.get("task_goal", ""),
         strategy_desc=variant.get("strategy_desc", ""),
