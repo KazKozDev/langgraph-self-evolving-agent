@@ -1,0 +1,14 @@
+# Core runtime dependencies.
+# Canonical source is pyproject.toml; this file mirrors it for convenience:
+#   pip install -r requirements.txt
+#
+# Optional extras (install via pyproject):
+#   pip install -e ".[dev]"        # pytest, pytest-asyncio
+#   pip install -e ".[dashboard]"  # fastapi, uvicorn
+#   pip install -e ".[research]"   # production-rag-pipeline (from git)
+
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-openai>=0.2.0
+pydantic>=2.0
+httpx>=0.27

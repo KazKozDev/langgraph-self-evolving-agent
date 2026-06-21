@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 venv/
+.pytest_cache/
 
 # IDE
 .vscode/
@@ -19,4 +20,5 @@ Thumbs.db
 
 # Project
 *.json
-!pyproject.toml
+agent_workspace/        # sandbox the agent writes files into
+.claude/                # local editor/session settings
