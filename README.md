@@ -240,15 +240,29 @@ I leaned on a handful of 2026 papers on self-evolving agents. The mapping to cod
 
 | paper | idea | here |
 |-------|------|------|
-| APEX (2605.21240) | explore/exploit over a strategy space | `explore_policies` + strategy memory |
-| EvoDS (2606.03841) | distilling skills from experience | `extract_skills` |
-| SOLAR (2605.20189) | lifelong learning | cyclic graph + `--loop` |
-| ANCHOR (2606.06114) | human-in-the-loop | `human_review` via `interrupt()` |
-| PEAM (2605.27762) | absorbing experience | `assimilate_best` |
-| Forgetting (2605.09315) | anti-degradation | EMA `success_rate` on skills/strategies/tools |
-| AEL (2604.21725) | open-ended adaptation | strategy fan-out |
+| [APEX](https://arxiv.org/abs/2605.21240) | explore/exploit over a strategy space | `explore_policies` + strategy memory |
+| [EvoDS](https://arxiv.org/abs/2606.03841) | distilling skills from experience | `extract_skills` |
+| [SOLAR](https://arxiv.org/abs/2605.20189) | lifelong learning | cyclic graph + `--loop` |
+| [ANCHOR](https://arxiv.org/abs/2606.06114) | human-in-the-loop | `human_review` via `interrupt()` |
+| [PEAM](https://arxiv.org/abs/2605.27762) | absorbing experience | `assimilate_best` |
+| [Forgetting](https://arxiv.org/abs/2605.09315) | anti-degradation | EMA `success_rate` on skills/strategies/tools |
+| [AEL](https://arxiv.org/abs/2604.21725) | open-ended adaptation | strategy fan-out |
 
 These are inspirations, not reimplementations — the spirit is faithful, the code is my own and much simpler.
+
+## If you want to actually read them
+
+The papers, in the order I'd read them. Start with APEX — it's the one whose explore/exploit framing maps most directly onto what's in here. The rest are good for the surrounding intuitions (how to distill skills, how to not forget, where the human goes).
+
+- **APEX** — Autonomous Policy Exploration for Self-Evolving LLM Agents · https://arxiv.org/abs/2605.21240
+- **EvoDS** — skill distillation from experience · https://arxiv.org/abs/2606.03841
+- **SOLAR** — lifelong learning · https://arxiv.org/abs/2605.20189
+- **ANCHOR** — human-in-the-loop for agents · https://arxiv.org/abs/2606.06114
+- **PEAM** — experience absorption · https://arxiv.org/abs/2605.27762
+- **Forgetting** — anti-degradation in evolving agents · https://arxiv.org/abs/2605.09315
+- **AEL** — open-ended adaptation · https://arxiv.org/abs/2604.21725
+
+If a link 404s, the arXiv id is right there — paste it into the search box. (And if I've mischaracterized any of these, that's on me, not the authors — read the abstract, not my one-liner.)
 
 ## License
 
