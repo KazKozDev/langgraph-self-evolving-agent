@@ -39,7 +39,8 @@ def evaluate_results(state: EvolutionState) -> dict:
                     f"Rate this output 1-10 for correctness+quality: \"{best_policy['output_summary']}\"."
                     f" Return JSON: {{\"score\": N}}"
                 )
-                q = json.loads(str(resp.content))
+                from src.json_parser import parse_json
+                q = parse_json(str(resp.content))
                 best_policy["quality_score"] = q.get("score", 7)
             except Exception:
                 best_policy["quality_score"] = 7

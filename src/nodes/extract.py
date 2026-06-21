@@ -48,7 +48,8 @@ Use 2-4 steps max. Be specific.
 """
     try:
         resp = llm.invoke(prompt)
-        skill_data = json.loads(str(resp.content))
+        from src.json_parser import parse_json
+        skill_data = parse_json(str(resp.content))
         skill = {
             "name": skill_data.get("name", f"skill-{len(store.get_skills())}"),
             "triggers": skill_data.get("triggers", []),

@@ -14,6 +14,7 @@ Every executor produces real output — no simulation.
 from __future__ import annotations
 
 import json
+from src.json_parser import parse_json as _parse_json
 import os
 import subprocess
 import tempfile
@@ -140,7 +141,7 @@ class ResearchExecutor(DomainExecutor):
             resp = llm.invoke(
                 f"Task: {goal}\n\nGenerate 2 search queries. Return JSON: {{\"queries\": [\"q1\", \"q2\"]}}"
             )
-            queries = json.loads(str(resp.content)).get("queries", [goal])
+            queries = _parse_json(str(resp.content)).get("queries", [goal])
         except Exception:
             queries = [goal]
 
@@ -167,7 +168,7 @@ class ResearchExecutor(DomainExecutor):
                 resp = llm.invoke(
                     f"Research: {goal}\n\nSources:\n{ctx}\n\nSynthesize answer (3-5 sentences). Return JSON: {{\"answer\": \"...\", \"sources\": N}}"
                 )
-                data = json.loads(str(resp.content))
+                data = _parse_json(str(resp.content))
                 summary = data.get("answer", ctx[:300])
                 steps = len(findings)
             except Exception:

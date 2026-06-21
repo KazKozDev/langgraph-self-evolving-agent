@@ -15,6 +15,8 @@ import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from src.json_parser import parse_json as _parse_json
+
 
 @dataclass
 class ExecutionResult:
@@ -53,7 +55,7 @@ Simulate outcome. Return JSON:
 """
         try:
             resp = llm.invoke(prompt)
-            data = json.loads(str(resp.content))
+            data = _parse_json(str(resp.content))
         except Exception:
             data = {"success": False, "steps": 0, "errors": ["mock_failed"], "output_summary": ""}
 
