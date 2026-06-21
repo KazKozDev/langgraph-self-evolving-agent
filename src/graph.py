@@ -19,6 +19,7 @@ from src.nodes.evaluate import evaluate_results
 from src.nodes.explore import explore_policies, run_variant
 from src.nodes.extract import extract_skills
 from src.nodes.human import human_review
+from src.nodes.synthesize import synthesize_tools
 from src.state import EvolutionState
 
 
@@ -49,6 +50,7 @@ def _phase_router(state: EvolutionState) -> str:
     node_map = {
         "collect": "collect_experience",
         "extract": "extract_skills",
+        "synthesize": "synthesize_tools",
         "explore": "explore_policies",
     }
     return node_map.get(phase, "collect_experience")
@@ -63,6 +65,7 @@ def build_graph() -> StateGraph:
 
     builder.add_node("collect_experience", collect_experience)
     builder.add_node("extract_skills", extract_skills)
+    builder.add_node("synthesize_tools", synthesize_tools)
     builder.add_node("explore_policies", explore_policies)
     builder.add_node("run_variant", run_variant)
     builder.add_node("evaluate_results", evaluate_results)
@@ -72,7 +75,7 @@ def build_graph() -> StateGraph:
     builder.set_entry_point("collect_experience")
 
     all_nodes = [
-        "collect_experience", "extract_skills", "explore_policies",
+        "collect_experience", "extract_skills", "synthesize_tools", "explore_policies",
         "run_variant", "evaluate_results", "human_review", "assimilate_best",
     ]
 

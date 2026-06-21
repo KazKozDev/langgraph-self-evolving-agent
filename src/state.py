@@ -72,6 +72,9 @@ class EvolutionState(TypedDict):
     extracted_skills: list[dict]  # fresh extractions this cycle
     degraded_skills: list[dict]   # flagged by anti-forgetting
 
+    # Self-written tools synthesized this cycle
+    synthesized_tools: list[dict]
+
     # Policy exploration
     policy_variants: list[dict]   # PolicyResult[]
     variant_index: int             # which variant is currently running
@@ -79,6 +82,12 @@ class EvolutionState(TypedDict):
 
     # Tournament
     tournament_results: dict | None
+
+    # Live task (optional) — when set, explore_policies targets THIS goal
+    # directly instead of mining history for a target. Lets you drive the full
+    # evolution machinery against any goal you type in.
+    task_goal: str
+    task_domain: str
 
     # Control flow
     cycle: int                    # which evolution cycle

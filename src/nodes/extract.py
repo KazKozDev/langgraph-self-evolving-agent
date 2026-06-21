@@ -25,7 +25,7 @@ def extract_skills(state: EvolutionState) -> dict:
         if e.get("result") == "success" and e.get("tool_calls", 0) >= 3
     ]
     if not candidates:
-        return {"extracted_skills": [], "phase": "explore"}
+        return {"extracted_skills": [], "phase": "synthesize"}
 
     # Only extract ONE skill per cycle (faster, less noise)
     exp = candidates[0]
@@ -33,7 +33,7 @@ def extract_skills(state: EvolutionState) -> dict:
     # Check if already captured
     existing = store.get_skill(exp.get("key_pattern", ""))
     if existing:
-        return {"extracted_skills": [], "skills": store.get_skills(), "phase": "explore"}
+        return {"extracted_skills": [], "skills": store.get_skills(), "phase": "synthesize"}
 
     llm = get_llm(max_tokens=500)
     prompt = f"""Extract ONE reusable skill from this successful task. Be concise.
@@ -65,7 +65,7 @@ Use 2-4 steps max. Be specific.
         return {
             "extracted_skills": [skill],
             "skills": store.get_skills(),
-            "phase": "explore",
+            "phase": "synthesize",
         }
     except Exception:
-        return {"extracted_skills": [], "skills": store.get_skills(), "phase": "explore"}
+        return {"extracted_skills": [], "skills": store.get_skills(), "phase": "synthesize"}

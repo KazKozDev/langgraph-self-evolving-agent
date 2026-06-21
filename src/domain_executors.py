@@ -76,11 +76,14 @@ class CodingExecutor(DomainExecutor):
 
     def _generate(self, goal: str, strategy: str, error: str | None = None) -> tuple[str, list[str]]:
         from src.llm import get_llm
+        from src.tools.registry import tool_catalog
         llm = get_llm(max_tokens=1500)
+        catalog = tool_catalog()
+        tools_hint = f"\n\n{catalog}\nReuse them when relevant.\n" if catalog else ""
         if error:
-            prompt = f"Code FAILED with:\n{error}\n\nTask: {goal}{strategy}\n\nWrite FIXED Python. Only code, no markdown."
+            prompt = f"Code FAILED with:\n{error}\n\nTask: {goal}{strategy}{tools_hint}\n\nWrite FIXED Python. Only code, no markdown."
         else:
-            prompt = f"Write Python script. Task: {goal}{strategy}\n\nRunnable with python3. Print 'SUCCESS: <summary>' at end. Only code, no markdown."
+            prompt = f"Write Python script. Task: {goal}{strategy}{tools_hint}\n\nRunnable with python3. Print 'SUCCESS: <summary>' at end. Only code, no markdown."
         try:
             resp = llm.invoke(prompt)
             code = str(resp.content).strip()
@@ -98,7 +101,16 @@ class CodingExecutor(DomainExecutor):
         try:
             with open(path, "w") as f:
                 f.write(code)
-            proc = subprocess.run(["python3", path], capture_output=True, text=True, timeout=self.timeout, cwd=tmp)
+            # Make both built-in tools (src.tools.builtins, via the repo root)
+            # and self-written tools (TOOLS_DIR) importable from generated code.
+            from src.tools.registry import tools_dir
+            repo_root = Path(__file__).resolve().parent.parent
+            env = dict(os.environ)
+            env["PYTHONPATH"] = os.pathsep.join(
+                [str(tools_dir()), str(repo_root), env.get("PYTHONPATH", "")]
+            )
+            proc = subprocess.run(["python3", path], capture_output=True, text=True,
+                                  timeout=self.timeout, cwd=tmp, env=env)
             out = proc.stdout + proc.stderr
             ok = proc.returncode == 0
             errors = [] if ok else [l for l in proc.stderr.split("\n") if l.strip()][-3:]
@@ -123,20 +135,68 @@ class CodingExecutor(DomainExecutor):
 # ── Research Executor ─────────────────────────────────────────
 
 class ResearchExecutor(DomainExecutor):
-    """Web search → fetch pages → LLM synthesis → structured findings."""
+    """Web search → fetch pages → LLM synthesis → structured findings.
+
+    Uses production_rag_pipeline (Bing+DDG, semantic filter, hybrid rerank);
+    falls back to basic webtools on import/setup failure.
+    """
 
     def __init__(self, timeout: int = 60):
         self.timeout = timeout
 
     def execute(self, goal: str, strategy_desc: str = "", domain: str = "research") -> ExecutionResult:
         from src.llm import get_llm
-        from src.webtools import search, fetch
 
         llm = get_llm(max_tokens=1200)
+
+        # ── Try production RAG pipeline ──────────────────────
+        context = self._rag_search(goal)
+        if context:
+            return self._synthesize(llm, goal, context)
+
+        # ── Fallback: basic webtools ─────────────────────────
+        return self._fallback_search(llm, goal)
+
+    def _rag_search(self, goal: str) -> str:
+        """Search via production_rag_pipeline. Returns context or ""."""
+        try:
+            from production_rag_pipeline import search_extract_rerank, build_llm_context
+
+            lang = "ru" if any("\u0400" <= c <= "\u04ff" for c in goal) else "en"
+            chunks, results, urls = search_extract_rerank(query=goal, lang=lang)
+            context, _, _ = build_llm_context(chunks, results, fetched_urls=urls)
+            return context if context and context != "No relevant content found." else ""
+        except Exception:
+            return ""
+
+    def _synthesize(self, llm, goal: str, context: str) -> ExecutionResult:
+        """Feed context to LLM for synthesis."""
+        try:
+            resp = llm.invoke(
+                f"Research: {goal}\n\nSources:\n{context[:3000]}\n\n"
+                f"Synthesize answer (3-5 sentences). Return JSON: {{\"answer\": \"...\", \"sources\": N}}"
+            )
+            data = _parse_json(str(resp.content))
+            return ExecutionResult(
+                success=True,
+                steps=1,
+                output_summary=data.get("answer", context[:300]),
+                raw_output=context[:2000],
+            )
+        except Exception:
+            return ExecutionResult(
+                success=True,
+                output_summary=context[:300],
+                raw_output=context[:2000],
+            )
+
+    def _fallback_search(self, llm, goal: str) -> ExecutionResult:
+        """Basic DDG search when RAG pipeline unavailable."""
+        from src.webtools import search, fetch
+
         errors = []
         findings = []
 
-        # Step 1: Generate search queries from goal
         try:
             resp = llm.invoke(
                 f"Task: {goal}\n\nGenerate 2 search queries. Return JSON: {{\"queries\": [\"q1\", \"q2\"]}}"
@@ -145,7 +205,6 @@ class ResearchExecutor(DomainExecutor):
         except Exception:
             queries = [goal]
 
-        # Step 2: Search + fetch top result from each query
         for q in queries[:2]:
             try:
                 results = search(q, max_results=3)
@@ -153,7 +212,6 @@ class ResearchExecutor(DomainExecutor):
                     findings.append(f"### Search: {q}")
                     for r in results[:2]:
                         findings.append(f"- {r['title']}: {r['snippet'][:200]}")
-                    # Fetch top result for deeper content
                     top = results[0]
                     page_text = fetch(top["url"], timeout=self.timeout)
                     if page_text and not page_text.startswith("[fetch error"):
@@ -161,30 +219,25 @@ class ResearchExecutor(DomainExecutor):
             except Exception as e:
                 errors.append(f"search failed: {e}")
 
-        # Step 3: Synthesize
         if findings:
             ctx = "\n".join(findings)
             try:
                 resp = llm.invoke(
-                    f"Research: {goal}\n\nSources:\n{ctx}\n\nSynthesize answer (3-5 sentences). Return JSON: {{\"answer\": \"...\", \"sources\": N}}"
+                    f"Research: {goal}\n\nSources:\n{ctx}\n\n"
+                    f"Synthesize answer (3-5 sentences). Return JSON: {{\"answer\": \"...\", \"sources\": N}}"
                 )
                 data = _parse_json(str(resp.content))
                 summary = data.get("answer", ctx[:300])
-                steps = len(findings)
             except Exception:
                 summary = "\n".join(findings[:3])
-                steps = len(findings)
-        else:
-            summary = "No results found."
-            steps = 0
-
-        return ExecutionResult(
-            success=len(findings) > 0,
-            steps=steps,
-            errors=errors,
-            output_summary=summary,
-            raw_output="\n".join(findings),
-        )
+            return ExecutionResult(
+                success=True,
+                steps=len(findings),
+                errors=errors,
+                output_summary=summary,
+                raw_output="\n".join(findings),
+            )
+        return ExecutionResult(False, errors=errors, output_summary="No results found.")
 
 
 # ── Analysis Executor ─────────────────────────────────────────

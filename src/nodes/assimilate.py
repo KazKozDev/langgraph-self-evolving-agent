@@ -68,4 +68,7 @@ def assimilate_best(state: EvolutionState) -> dict:
     store.set_metric("last_cycle", cycle)
     store.set_metric("total_skills", len(store.get_skills()))
 
+    # Snapshot aggregate learning state for the dashboard's learning curve.
+    store.record_snapshot()
+
     return {"phase": "done", "cycle": cycle, "error": None}
