@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-67%20passed-brightgreen.svg)](.)
 
+**A self-improving LLM agent that learns from its own experience, writes and tests its own tools, and measurably gets better at tasks over time — running 100% locally, no API key, on a real LangGraph state machine.** A working take on one of the hardest open problems in agents: *evolution without retraining.*
+
 A small agent that gets a little better every time you use it — without ever touching the model weights.
 
 The weights are frozen. What changes is everything *around* the model: a memory of which strategies have actually worked, a growing box of tools it wrote and tested itself, and a library of distilled skills. You give it a task, it tries a couple of approaches, runs them for real, keeps score, and remembers. Next time something similar shows up, it reaches for what won last time. That's the whole idea.
