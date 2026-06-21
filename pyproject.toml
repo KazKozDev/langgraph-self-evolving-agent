@@ -1,6 +1,6 @@
 [project]
 name = "self-evolving-agent"
-version = "0.1.0"
+version = "1.0.0"
 description = "Self-Evolving LLM Agent on LangGraph — autonomous skill extraction, policy exploration, and lifelong learning"
 readme = "README.md"
 license = { text = "MIT" }
