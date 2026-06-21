@@ -1,226 +1,255 @@
-# Self-Evolving Agent
+# self-evolving-agent
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
 [![LangGraph](https://img.shields.io/badge/langgraph-1.2+-green.svg)](https://github.com/langchain-ai/langgraph)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-28%20passed-brightgreen.svg)](.)
+[![Tests](https://img.shields.io/badge/tests-67%20passed-brightgreen.svg)](.)
 
-An autonomous self-evolving LLM agent built on **LangGraph**. The agent collects experience from completed tasks, extracts reusable skills, explores alternative strategies, evaluates outcomes, and assimilates the best patterns — forming a closed evolutionary loop.
+A small agent that gets a little better every time you use it — without ever touching the model weights.
 
-> Built on research from 9 arXiv papers (2026): APEX, EvoDS, SOLAR, ANCHOR, PEAM, AEL, SimWorld Studio, and more.
+The weights are frozen. What changes is everything *around* the model: a memory of which strategies have actually worked, a growing box of tools it wrote and tested itself, and a library of distilled skills. You give it a task, it tries a couple of approaches, runs them for real, keeps score, and remembers. Next time something similar shows up, it reaches for what won last time. That's the whole idea.
 
-## Architecture
+It runs entirely on your laptop against a local Ollama model. No API key, nothing leaves the machine.
+
+## The one mental model to keep
+
+Most agents start every task from a blank slate. This one doesn't. Concretely, each task goes through a loop:
 
 ```
-           ┌──────────────────────────────────┐
-           │        collect_experience         │
-           │   load sessions → classify        │
-           └──────────────┬───────────────────┘
-                          │ phase=extract
-           ┌──────────────▼───────────────────┐
-           │         extract_skills            │
-           │   LLM distills successful runs    │
-           │   into reusable Skill objects     │
-           └──────────────┬───────────────────┘
-                          │ phase=explore
-           ┌──────────────▼───────────────────┐
-           │       explore_policies            │
-           │   design 2 strategy variants      │
-           └──────────────┬───────────────────┘
-                          │ phase=run_variant
-           ┌──────────────▼───────────────────┐
-           │  run_variant (×2, sequential)     │
-           │  execute each strategy            │
-           │  track: success, steps, errors    │
-           └──────────────┬───────────────────┘
-                          │ phase=evaluate
-           ┌──────────────▼───────────────────┐
-           │       evaluate_results            │
-           │  compare variants, pick winner    │
-           │  LLM-as-judge quality scoring     │
-           │  detect degraded skills           │
-           └──────────────┬───────────────────┘
-                          │
-                    ┌─────┴─────┐
-                    │ risky?    │
-                    ▼           ▼
-           ┌───────────┐  ┌──────────────┐
-           │human_review│  │assimilate_best│
-           │ (interrupt)│  │ save winning  │
-           └─────┬─────┘  │ strategy as   │
-                 │        │ skill         │
-                 └───┬────┴──────────────┘
-                     │ phase=done → END
+your task
+   │
+   ▼
+ classify domain        ← coding? research? writing? (auto, from the text)
+   │
+   ▼
+ maybe write a tool     ← if a small reusable helper would help, write it + a test,
+   │                       run the test, keep it only if it passes
+   ▼
+ design 2 strategies    ← one fresh idea from the LLM, plus the champion that won
+   │                       last time for this kind of task (explore + exploit)
+   ▼
+ run both for real      ← actually generate + execute code / search the web / etc.
+   │
+   ▼
+ judge → pick a winner  ← heuristic score + an LLM-as-judge
+   │
+   ▼
+ remember everything    ← every strategy's win/loss goes back into memory (EMA),
+                          so good ones rise and stale ones fade
 ```
 
-## Quick Start
+The punchline: the loop is *not* a fixed script. Strategies are generated and selected from accumulated performance, so the agent's behavior drifts toward what actually works. Watch `/strategies` over a session and you'll see one approach climb to the top and start getting re-picked. That climb is the whole point.
+
+It's built on [LangGraph](https://github.com/langchain-ai/langgraph) — a real `StateGraph`, typed state, conditional edges, a checkpointer, and a `human_review` node that can pause the graph mid-run via `interrupt()`.
+
+## Quickstart
 
 ```bash
 git clone https://github.com/YOU/self-evolving-agent.git
 cd self-evolving-agent
-
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-
-# Mock mode — no API key needed, runs instantly
-EVOLUTION_MOCK=true python demo.py
 ```
 
-**With a real LLM** (OpenAI-compatible API):
+You have a local Ollama? Just talk to it:
 
 ```bash
+python demo.py --chat --provider ollama
+```
+
+```
+[auto] you ▸ write a function that checks if a number is prime, with tests
+  · domain: coding (auto-detected)
+  · designing strategies…
+  · executing strategy…
+  · judging results…
+  ▶ Winner: Fast iteration — success=True, output: SUCCESS: prime checker
+  Skills: 7 | strategies: 6 | tools: 1
+```
+
+No model at all? Everything still runs in a deterministic mock:
+
+```bash
+EVOLUTION_MOCK=true python demo.py --chat
+```
+
+On a Mac you can also just **double-click `start_chat.command`** — it pops a Terminal, lets you pick a model, and drops you into the chat.
+
+## Talking to it
+
+Inside `--chat`, anything you type is treated as a task and run through the full loop. A few slash-commands let you peek and steer:
+
+```
+/ask <question>     just answer me (no machinery, streamed token-by-token)
+/domain coding      pin the domain   ·   /domain auto   let it detect again
+/tools              the tools it has (built-in + self-written)
+/skills             distilled skills
+/strategies         strategies with their success_rate / wins / plays
+/synth on|off       toggle tool synthesis
+/quit
+```
+
+You usually don't pass `--domain` — it's inferred from the task text and routed to the matching executor.
+
+## What it can actually do
+
+I want to be honest about where the "for real" stops, because it varies by domain:
+
+| domain | what happens | real? |
+|--------|--------------|-------|
+| `coding` | writes Python, **runs it**, reads the error, fixes it (up to 3 tries) | yes — you get working code |
+| `research` | DuckDuckGo search → reads pages → synthesizes | yes — it hits the internet¹ |
+| `analysis` | computes / processes data via code | yes |
+| `writing`, `planning` | drafts text / structured plans | yes — model output |
+| `general` | plain reasoning | yes, no tools |
+
+¹ Out of the box, `research` uses the built-in DuckDuckGo `search`/`fetch` in `webtools.py`. There's an optional `[research]` extra that swaps in a heavier RAG pipeline (`pip install -e ".[research]"`, pulled from git) — if it's not installed, it just falls back to the basic tools.
+
+It also ships with **built-in file tools** (`read_file`, `write_file`, `list_dir`) confined to a workspace dir (`AGENT_WORKSPACE`, default `./agent_workspace`). Generated code can `import` them. Path traversal out of the workspace is rejected.
+
+And here's the part I like most:
+
+## It writes its own tools
+
+Beyond learning *which strategy* works, the agent can grow *new capabilities*. When a task could use a small reusable helper, the `synthesize_tools` node:
+
+1. asks the model to write the function **plus a test**,
+2. runs the test in a throwaway sandbox,
+3. saves it **only if the test passes**,
+4. registers it (with a `success_rate` that decays if it gets flaky),
+5. injects the tool catalog into the executor's prompt and puts the tools dir on `PYTHONPATH` — so the *next* task can just import and reuse it.
+
+```bash
+python demo.py --task "constrain a sensor reading to a safe range" --domain coding
+#   🔧 synthesized + verified new tool: clamp(x, lo, hi)
+python demo.py --list-tools
+```
+
+The test is the gate. A tool that can't pass its own test never gets saved, so the toolbox stays trustworthy instead of filling up with plausible-looking garbage.
+
+## Why this is more than a wrapper
+
+The interesting bit is the closed loop, so let me spell out the mechanism:
+
+1. **Strategies are generated, not hardcoded.** Each cycle the model proposes fresh approaches for *this* task, and it's told what's already been tried (with track records) so it doesn't just repeat itself.
+2. **Outcomes are written back.** `evaluate_results` records every variant's win/loss into a persistent strategy memory — an exponential moving average per strategy, so recent results matter more.
+3. **Winners defend their title.** Next time, the best strategy for that domain re-enters as a "champion" challenger alongside the new ideas. Keep winning → keep getting picked. Start losing → the EMA quietly demotes you. That last part is the anti-forgetting bit.
+
+Same EMA idea applies to skills and tools. Nothing here updates a single weight — it's all memory and selection.
+
+## Run it other ways
+
+```bash
+# one task, then exit (full machinery, with live progress)
+python demo.py --task "build a CSV parser with tests"
+
+# real bash execution, no model needed (planning falls back to mock)
+EXECUTOR_BACKEND=subprocess python demo.py --task "print uptime and disk usage" --domain general
+
+# a hosted OpenAI-compatible API instead of Ollama
 OPENAI_API_KEY=*** OPENAI_BASE_URL=https://api.deepseek.com \
-  EVOLUTION_MODEL=deepseek-chat python demo.py
-```
+  python demo.py --provider openai --model deepseek-chat --task "..."
 
-**Continuous loop:**
-
-```bash
+# background loop: keep evolving off a stream of past sessions
 EVOLUTION_MOCK=true python demo.py --loop
-# One cycle every 5 minutes. Ctrl+C to stop.
 ```
 
-**Real subprocess execution:**
+### Feeding it past experience
+
+The `--loop` mode is the other half of the story: instead of you typing tasks, the agent chews on a stream of *already-completed* sessions, distills skills, and evolves strategies in the background. Where that stream comes from is pluggable (`SESSION_SOURCE`): an in-memory mock, a JSONL file, any SQLite DB, or a watched directory. `submit.py` is the front door for the watched-directory flow:
 
 ```bash
-EXECUTOR_BACKEND=subprocess python demo.py
-# Strategies run real bash commands instead of simulating
+python submit.py "Write a REST API for user avatars"
+python submit.py --goal "Fix login bug" --domain debugging --result failure
 ```
 
-**Read sessions from a JSONL file:**
+Each submission drops a JSON record into `~/.self-evolving-agent/incoming/`, which the watch source picks up on the next cycle.
+
+### Picking a model
 
 ```bash
-SESSION_SOURCE=file python demo.py
-# Reads from ~/.self-evolving-agent/sessions.jsonl
+python demo.py --list-models                 # what's installed (MLX builds flagged)
+python demo.py --chat --provider ollama --model gemma4:12b-mlx
 ```
 
-## Demo Output
+`--model` takes a full name or a substring (`26b-mlx` → `gemma4:26b-mlx`). Omit it on Ollama and you get an interactive picker. The default is `gemma4:26b-mlx`.
 
-```
-============================================================
-  Self-Evolving Agent — Single Cycle
-============================================================
+> A note on speed: a single task fires *several* sequential model calls (classify → synthesize+test → design 2 strategies → run each → judge → distill). On a 26B model that's easily a couple of minutes. If it feels stuck, it isn't — watch the `·` progress lines. For snappy iteration, use a small model like `llama3.2:3b` or `gemma4:12b-mlx`.
 
-────────────────────────────────────────────────────────────
-  Cycle 0 complete (0.0s)
-────────────────────────────────────────────────────────────
-  Phase:          done
-  Experiences:    3
-  Skills created: 1
-    → debug-fastapi-500-error: 3 steps
-  Variants:       2
-  Best strategy:  B — Fast iteration (4 steps vs 7)
-    Success: True, Quality: 8/10
-  Human review:   not needed
-  Total skills:   2
-```
-
-## Project Structure
-
-```
-src/
-  state.py           EvolutionState (TypedDict) + Pydantic models
-  graph.py           LangGraph StateGraph — 8 nodes, phase-based router
-  llm.py             LLM client (real API + mock mode)
-  executor.py        TaskExecutor: Mock, Subprocess (bash/python)
-  session_source.py  SessionSource: Mock, File, SQLite, Watch
-  github_exporter.py GitHub auto-commit + push for evolved skills
-  nodes/
-    collect.py       collect_experience
-    extract.py       extract_skills
-    explore.py       explore_policies + run_variant (parallel support)
-    evaluate.py      evaluate_results + degradation detection
-    assimilate.py    assimilate_best → persistent store + GitHub export
-    human.py         human_review (LangGraph interrupt)
-  memory/
-    store.py         JSON-backed persistent skill/experience store
-demo.py              Single cycle or continuous loop demo
-dashboard.py         FastAPI web dashboard (http://localhost:8080)
-```
-
-## Pluggable Backends
-
-### Executors (how tasks are run)
-
-| Backend | Env var | Description |
-|---------|---------|-------------|
-| `mock` | (default) | LLM simulates execution — fast, no side effects |
-| `subprocess` | `EXECUTOR_BACKEND=subprocess` | Real bash commands |
-| `python` | `EXECUTOR_BACKEND=python` | Real Python scripts |
-
-### Session Sources (where experience comes from)
-
-| Backend | Env var | Description |
-|---------|---------|-------------|
-| `mock` | (default) | Seeded in-memory data |
-| `file` | `SESSION_SOURCE=file` | JSONL file (`~/.self-evolving-agent/sessions.jsonl`) |
-| `sqlite` | `SESSION_SOURCE=sqlite` | Any SQLite DB with sessions table |
-| `watch` | `SESSION_SOURCE=watch` | Watches directory for incoming JSON files |
-
-### LLMs
-
-| Mode | Env var | Description |
-|------|---------|-------------|
-| Mock | `EVOLUTION_MOCK=true` | Deterministic, no API key |
-| OpenAI-compatible | `OPENAI_API_KEY` + `OPENAI_BASE_URL` | Any OpenAI-compatible API |
-
-### GitHub Export
-
-Set `GITHUB_REPO_PATH=~/my-skills-repo` to auto-commit evolved skills as Markdown files.
-
-### Web Dashboard
+## Watch it learn
 
 ```bash
 pip install -e ".[dashboard]"
-python dashboard.py
-# → http://localhost:8080
+python dashboard.py     # → http://localhost:8080
 ```
 
-## Research Basis
+The dashboard has a **learning curve** — average strategy success rate over time — plus live skills, tools, and a button to trigger a cycle. The curve going up is the closest thing to proof that the loop is doing something.
 
-| Paper | Mechanism | In This Code |
-|-------|-----------|--------------|
-| **APEX** (2605.21240) | Policy exploration | `explore_policies` + `run_variant` |
-| **EvoDS** (2606.03841) | Skill extraction | `extract_skills` — LLM-driven distillation |
-| **SOLAR** (2605.20189) | Lifelong learning | Cyclic graph + continuous loop mode |
-| **ANCHOR** (2606.06114) | Human-in-the-loop | `human_review` with `interrupt()` |
-| **PEAM** (2605.27762) | Experience absorption | `assimilate_best` — persistent skill store |
-| **Forgetting** (2605.09315) | Anti-degradation | Degradation detection in `evaluate_results` |
-| **AEL** (2604.21725) | Open-ended adaptation | Strategy variant fan-out |
-| **SimWorld** (2605.09423) | Self-testing | Policy variants simulate task execution |
-| **EDA Tools** (2604.15082) | Multi-agent | Architecture ready for parallel Send API |
+Everything persists in one JSON file under `~/.self-evolving-agent/`, so memory survives restarts. If you point `GITHUB_REPO_PATH` at a repo, evolved skills also get written out as markdown and committed — a human-readable trail of what it learned.
 
-## Testing
+## Where the bodies are buried
+
+So you're not surprised:
+
+- It is **not** an operator of your machine. It can only touch files it writes inside the sandbox, and run code it generates. No "deploy this," no logging into your accounts.
+- Each chat message is a *task*, not a conversation turn. Say "hi" and it'll dutifully try to solve "hi" as a task. (Use `/ask` for actual chat.)
+- Quality is bounded by a **local** model. Gemma/Qwen are good, but they're not GPT-4. A 3B model will sometimes return junk JSON and fall back to defaults — that's a model-quality issue, not a bug in the loop.
+- The sandbox is a subprocess with a timeout, not real isolation. Don't point `coding` at hostile prompts and walk away.
+
+## Layout
+
+This is the whole thing — ~4.7k lines of Python, no hidden magic:
+
+```
+src/
+  state.py             EvolutionState (typed) + Pydantic models (Experience, Skill, ...)
+  graph.py             the LangGraph StateGraph + phase router (8 nodes)
+  llm.py               mock | openai | ollama — auto-detect, model listing, streaming
+  domain_classifier.py infer the domain from the task text
+  json_parser.py       coax JSON out of models that don't quite return JSON
+  tool_synthesis.py    write → test → register a new tool
+  executor.py          Mock / Subprocess (bash/python) executors
+  code_executor.py     generate → run → self-repair Python (the coding workhorse)
+  domain_executors.py  per-domain executors: Coding/Research/Analysis/Writing/Planning/General
+  webtools.py          DuckDuckGo search() + fetch() — internet for the research executor
+  session_source.py    where past experience comes from: mock / file / sqlite / watch
+  github_exporter.py   write evolved skills out as markdown + git commit/push
+  nodes/               collect · extract · synthesize · explore (+run_variant) · evaluate · human · assimilate
+  memory/store.py      one JSON file: skills, experiences, strategies, tools, history, metrics
+  tools/
+    registry.py        load/list/register self-written tools + build the prompt catalog
+    builtins.py        sandboxed file tools (read_file/write_file/list_dir)
+demo.py                chat / single task / loop — the thing you actually run
+submit.py              push tasks into the agent's queue (for the watch/loop workflow)
+dashboard.py           FastAPI dashboard with the learning curve
+start_chat.command     double-click launcher (macOS)
+tests/                 13 files, mock paths throughout
+```
+
+## Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -v
-# 28 tests, all passing
+pytest tests/ -v        # 67 passing
 ```
 
-## Key LangGraph Features
+Everything has a mock path, so the whole suite runs in a few seconds with no model and no network.
 
-- **StateGraph** with typed `EvolutionState`
-- **Conditional edges** — phase-based central router
-- **MemorySaver** checkpointer — enables `interrupt` + state persistence
-- **Pydantic models** — `Experience`, `Skill`, `PolicyResult`
-- **Mock LLM** — fast local testing without API calls
-- **Pluggable backends** — swap executors and session sources via env vars
+## Where the ideas come from
 
-## Roadmap
+I leaned on a handful of 2026 papers on self-evolving agents. The mapping to code, honestly:
 
-- [x] Mock LLM for fast testing
-- [x] Real OpenAI-compatible API support
-- [x] Subprocess executor (bash/python)
-- [x] SQLite + Watch session sources
-- [x] GitHub auto-export of evolved skills
-- [x] FastAPI web dashboard
-- [x] Continuous loop mode
-- [x] Parallel strategy execution
-- [x] Human-in-the-loop via LangGraph interrupt
-- [ ] LangSmith tracing for graph visualization
-- [ ] Streaming output mode
+| paper | idea | here |
+|-------|------|------|
+| APEX (2605.21240) | explore/exploit over a strategy space | `explore_policies` + strategy memory |
+| EvoDS (2606.03841) | distilling skills from experience | `extract_skills` |
+| SOLAR (2605.20189) | lifelong learning | cyclic graph + `--loop` |
+| ANCHOR (2606.06114) | human-in-the-loop | `human_review` via `interrupt()` |
+| PEAM (2605.27762) | absorbing experience | `assimilate_best` |
+| Forgetting (2605.09315) | anti-degradation | EMA `success_rate` on skills/strategies/tools |
+| AEL (2604.21725) | open-ended adaptation | strategy fan-out |
+
+These are inspirations, not reimplementations — the spirit is faithful, the code is my own and much simpler.
 
 ## License
 
-MIT
+MIT. Have fun with it.

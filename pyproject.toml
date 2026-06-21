@@ -14,6 +14,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
 dashboard = ["fastapi>=0.115", "uvicorn>=0.30"]
+research = [
+    "production-rag-pipeline @ git+https://github.com/KazKozDev/production_rag_pipeline.git@ae4ed60c9165b49c58705d85e470b6c833f1fab9",
+]
 
 [build-system]
 requires = ["setuptools>=75"]

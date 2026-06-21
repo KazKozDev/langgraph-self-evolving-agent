@@ -82,10 +82,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <h1>🧬 Self-Evolving Agent</h1>
   <div id="flash" class="flash"></div>
   <div class="grid">
+    <div class="card" style="grid-column: 1 / -1;">
+      <h2>Learning curve — avg strategy success rate</h2>
+      <div id="chart"><p style="color:#8b949e">No history yet — run a few cycles.</p></div>
+    </div>
     <div class="card">
       <h2>Skills</h2>
       <div id="skills-count" class="metric">…</div>
       <div id="skills-list"></div>
+    </div>
+    <div class="card">
+      <h2>Self-written tools</h2>
+      <div id="tools-count" class="metric">…</div>
+      <div id="tools-list"></div>
     </div>
     <div class="card">
       <h2>Metrics</h2>
@@ -103,13 +112,40 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 
 <script>
+function renderChart(hist) {
+  const el = document.getElementById('chart');
+  if (!hist || hist.length < 2) { return; }
+  const W = 720, H = 200, pad = 30;
+  const xs = (i) => pad + i * (W - 2*pad) / (hist.length - 1);
+  const ys = (v) => H - pad - v * (H - 2*pad);            // v in [0,1]
+  const pts = hist.map((h,i) => `${xs(i).toFixed(1)},${ys(h.avg_strategy_success_rate||0).toFixed(1)}`).join(' ');
+  const grid = [0,0.25,0.5,0.75,1].map(v =>
+    `<line x1="${pad}" y1="${ys(v)}" x2="${W-pad}" y2="${ys(v)}" stroke="#21262d"/>`+
+    `<text x="4" y="${ys(v)+4}" fill="#8b949e" font-size="10">${(v*100)|0}%</text>`).join('');
+  const dots = hist.map((h,i) =>
+    `<circle cx="${xs(i)}" cy="${ys(h.avg_strategy_success_rate||0)}" r="3" fill="#58a6ff"/>`).join('');
+  el.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%">${grid}`+
+    `<polyline points="${pts}" fill="none" stroke="#3fb950" stroke-width="2"/>${dots}</svg>`+
+    `<p style="font-size:.8rem;color:#8b949e">${hist.length} snapshots · `+
+    `latest ${((hist[hist.length-1].avg_strategy_success_rate||0)*100).toFixed(0)}%</p>`;
+}
+
 async function load() {
   try {
-    const [sk, met, exp] = await Promise.all([
+    const [sk, met, exp, hist, tools] = await Promise.all([
       fetch('/api/skills').then(r=>r.json()),
       fetch('/api/metrics').then(r=>r.json()),
       fetch('/api/experiences').then(r=>r.json()),
+      fetch('/api/history').then(r=>r.json()),
+      fetch('/api/tools').then(r=>r.json()),
     ]);
+    renderChart(hist);
+    document.getElementById('tools-count').textContent = tools.length;
+    document.getElementById('tools-list').innerHTML = tools.slice(0,10).map(t =>
+      `<div class="skill"><div class="skill-name">${t.signature||t.name}</div>
+        <div class="skill-meta">rate: <span class="${t.success_rate>=0.8?'rate-good':t.success_rate>=0.5?'rate-warn':'rate-bad'}">${((t.success_rate||1)*100).toFixed(0)}%</span> · used ${t.use_count||0}× · ${t.description||''}</div></div>`
+    ).join('') || '<p style="color:#8b949e">No tools yet</p>';
     document.getElementById('skills-count').textContent = sk.length;
     document.getElementById('skills-list').innerHTML = sk.slice(0,10).map(s =>
       `<div class="skill">
@@ -186,6 +222,17 @@ async def list_skills():
     return JSONResponse(skills)
 
 
+@app.get("/api/history")
+async def get_history():
+    """Time series for the learning curve."""
+    return JSONResponse(_get_store().get_history())
+
+
+@app.get("/api/tools")
+async def list_agent_tools():
+    return JSONResponse(_get_store().get_tools())
+
+
 @app.get("/api/metrics")
 async def get_metrics():
     store = _get_store()
@@ -215,6 +262,9 @@ async def trigger_evolution():
             "skills": [],
             "extracted_skills": [],
             "degraded_skills": [],
+            "synthesized_tools": [],
+            "task_goal": "",
+            "task_domain": "",
             "policy_variants": [],
             "variant_index": 0,
             "best_policy": None,
